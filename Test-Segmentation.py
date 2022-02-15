@@ -1,26 +1,31 @@
 
 import gdal
 import ogr
-import os
 from skimage import exposure
 from skimage.segmentation import quickshift, felzenszwalb
 import time
 import numpy as np
 import gc
 from skimage.util import img_as_ubyte, img_as_uint
+import os
+os.chdir(os.path.dirname(__file__))
+import functions 
+
 
 
 def resize_raster(fn, dest):
-    """ Diminue la résolution de l'image si trop grande"""
+    """ Réechantillonage de l'image à une nouvelle résolution (x, y)"""
     ds = gdal.Open(fn)
     
     X= ds.RasterXSize
     Y= ds.RasterYSize
     
+    #modifier ces deux expressions pour changer la résolution finale
     x = X/2
     y = Y/2
     
-    out_fn = imgDir + fn.split(sep = "/")[-1][:-4] + f"_rescaled.tif"
+    #chemin de l'output
+    out_fn = fn.replace(".tif" , "_rescaled.tif")   
     gdal.Warp(out_fn, ds, height = y, width = x, resampleAlg="cubic")
     
     ds.FlushCache()
@@ -28,34 +33,35 @@ def resize_raster(fn, dest):
     
     return out_fn
 
-def segmentation(img_fn, dest, scale = 100, sigma = 1, min_size=50):    
+def segmentation(img_fn, dest, in_scale = 150, in_sigma = 0.8, in_min_size=100): 
+    
+    """Segmentation felzenszwalb prends le chemin du fichier en entrée et créer deux fichier de segments sur le disque : raster et vecteur."""
     if not os.path.isdir(dest) : os.mkdir(dest)
     
+    #lecture de l'image sous forme de np.array
     ref_ds, bdata_ortho = functions.readFiles(img_fn)
-    
     bdata_ortho = bdata_ortho.astype(np.uint8)
     print(bdata_ortho.dtype)
     
- 
-    toc = time.time() #timer
+    toc = time.time() #début du timer
+    
     img = exposure.rescale_intensity(bdata_ortho, out_range=np.uint8)
     img = img_as_ubyte(bdata_ortho)
     print("segments start :  ")
-    # Segmentation Felzenszwalb
-    segments =img_as_uint(felzenszwalb(img, scale=scale, sigma=sigma, min_size=min_size)) 
     
-    #Segmentation QuickShift
-    # segments = quickshift(img, convert2lab=False)
+    # Appel de la fonction de Segmentation Felzenszwalb
+    segments =img_as_uint(felzenszwalb(img, scale=in_scale, sigma=in_sigma, min_size=in_min_size)) 
+    #Création du Raster
     segments_fn = os.path.join(dest, os.path.basename(img_fn).replace("rescaled", "segments"))
     functions.writeRaster(segments, segments_fn, ref_ds)
+    #Création du shapefile
     polygonize_raster(segments_fn, )
     tic= time.time()
 
     print(f"Segmentation done. \n {segments_fn} crée en : {tic-toc} seconds ")
-    
+
     ref_ds.FlushCache()
     ref_ds = bdata_ortho = None
-    
     return segments_fn
 
 def polygonize_raster(raster_fn, out_fn=""):
@@ -86,68 +92,32 @@ def polygonize_raster(raster_fn, out_fn=""):
     raster_ds.FlushCache()
     out_ds = raster_ds = out_lyr = None
  
-# #input
-os.chdir(os.path.dirname(__file__))
-import functions 
+# dossier des inputs
 imgDir = '../02-inputs/'
+imgDir = "C:/Users/Karim/Desktop/Newfolder"
 
-#Output
-resultats= '../03-resultats/'
-if not os.path.isdir(resultats) :   os.mkdir(resultats) #créer le dossier si inexistant
-
-#Scan les fichier dans le dossier d'inputs
+#Scan les dossiers qui se trouvent dans imgDir, et effectue le reéchantillonage et la segmentations des images (*.tif) qui s'y trouvent.
 for folder in [_.path for _ in os.scandir(imgDir) if _.is_dir()]:
     files = [_.path for _ in os.scandir(folder) if not "rescaled" in _.path if ".tif" in _.path]
-    for ortho_fn in files:
-        print(ortho_fn)
-        
-        ortho_rescaled = resize_raster(ortho_fn, imgDir)
+    
+    for ortho_fn in files:    
+        print("Traitement du fichier :", ortho_fn)
+        # appel à la fonction de reéchantillonage
+        # ortho_rescaled = resize_raster(ortho_fn, imgDir)
         print("Rescaling Done.")
+        gc.collect() #garbage collector 
+        
+        #creation d'output des segments
         seg_dir = os.path.join(folder, "segments")
         if not os.path.exists(seg_dir) :
             os.mkdir(seg_dir)
         
-        gc.collect()
-        segmentation(ortho_rescaled, seg_dir, 150, 0.8, 100)
-        
+        # appel à la fonction de segmentation
+        # segmentation(ortho_rescaled, seg_dir, 150, 0.8, 100)
+        print("\n"*2)
     
     
     
-        
 
-
-
-
-# resize_raster(Po_fn[0], imgDir)
-
-
-
-# file_name = path.split(sep="/")[-1] #nom du fichier
-# # Lecture des donnés de l'ortho
-# ref_ds, bdata_ortho = functions.readFiles(path)
-
-# img = exposure.rescale_intensity(bdata_ortho) #rescale des valeurs à 0-1
-
-
-# # Segmentation Quickshift :         
-# # segments = quickshift(img, convert2lab=0, kernel_size=7)
-# # segments_fn = resultats+file_name[:-4]+'_qshift_ker7.tif'
-# # functions.writeRaster(segments, segments_fn, ref_ds)
-
-# # boucle pour different parametres de segmentation
-# for i in [150]:
-#     for j in [1]:
-#         toc = time.time() #timer
-#         print("segments start ")
-        
-#         # Segmentation Felzenszwalb
-#         segments = felzenszwalb(img, scale=i, sigma=j, min_size=50)
-#         segments_fn = resultats+file_name[:-4]+f'_felz-scale{i}-sigma{j}.tif'
-        
-#         functions.writeRaster(segments, segments_fn, ref_ds)
-#         tic= time.time()
-    
-#         print(f"{segments_fn} crée en : {tic-toc}")
-        
 
 
